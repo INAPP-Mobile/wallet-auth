@@ -1,8 +1,45 @@
-# Wallet Auth API
+# Deploy and Host
 
-[![Deploy to Railway](https://railway.app/button.svg)](https://railway.com/deploy/gG0NEC)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/gG0NEC)
 
-Wallet signature verification API for the agent economy. Verify **SIWE** (Ethereum/EIP-4361), **NIP-98** (Nostr HTTP auth), and **Solana ed25519** signatures over one HTTP interface — with x402 micropayments ($0.001 per oracle call) and a free forward-auth gate mode that protects any service behind Caddy or nginx.
+![Wallet Auth API](https://raw.githubusercontent.com/INAPP-Mobile/wallet-auth/main/template-icon.svg)
+
+Wallet Auth API is a self-hosted signature verification service for the agent economy. Verify **SIWE** (Ethereum/EIP-4361), **NIP-98** (Nostr HTTP auth), and **Solana ed25519** signatures over one HTTP interface — with an x402 micropayment oracle ($0.001 per verify) and a free forward-auth gate mode that protects any service behind Caddy or nginx.
+
+## About Hosting
+
+The template deploys a single Node.js container built from its own Dockerfile, with a persistent volume mounted at `/data` that stores single-use sign-in challenges (nonce store) so replay protection survives restarts and deploys.
+
+- One service, one public domain, no companion databases required
+- Sessions are stateless HS256 tokens; the only persistent state is the nonce store on the volume
+- Set `PUBLIC_URL=${{RAILWAY_PUBLIC_DOMAIN}}` after first deploy and redeploy once so domain variables resolve
+
+Railway provides compute, TLS at the edge, the public URL, and the volume.
+
+## Why Deploy
+
+- **Three chains, one endpoint** — Ethereum (SIWE/EIP-4361), Nostr (NIP-98 kind-27235), and Solana (ed25519) verification without wiring three SDKs
+- **x402 pay-per-verify oracle** — `POST /v1/verify` charges $0.001 USDC via the x402 protocol and returns `{valid, identity}` or `402 Payment Required`
+- **Replay protection built in** — single-use server challenges persisted on a volume; bad signatures never burn nonces
+- **Free sign-in flows** — `/auth/siwe`, `/auth/nostr`, `/auth/solana` issue HS256 session tokens with no payment required
+- **Gate mode** — drop-in `forward_auth` for Caddy and `auth_request` for nginx; any upstream becomes wallet-gated with three lines of config
+- **Bundled login UI** — working MetaMask, Alby/nos2x, and Phantom sign-in pages out of the box
+
+## Common Use Cases
+
+- **Wallet-gated dashboards** — put a login wall in front of any homelab or internal service via Caddy/nginx forward auth
+- **x402 tool sellers** — meter access to your own APIs behind proven identity checks and sell verifications at $0.001/call
+- **Agent-to-agent authentication** — AI agents prove which wallet they control before calling your endpoints
+- **Sign-in with Ethereum / Nostr / Solana** — issue session tokens for SPAs without running a full identity provider
+
+## Dependencies for wallet-auth
+
+### Deployment Dependencies
+
+None beyond Railway itself — no companion services, no external databases. The template creates its own persistent volume at `/data`. Optional variables enable paid mode:
+
+- `X402_PAY_TO` — your wallet address receiving x402 payments (omit, or set `PAID_VERIFY=off`, to run free gate-only mode)
+- `X402_CDP_KEY_ID` / `X402_CDP_KEY_SECRET` — Coinbase CDP API keys used by the x402 facilitator in paid mode
 
 ## Features
 
@@ -66,36 +103,40 @@ Set `PAID_VERIFY=off` to run pure gate-mode with no wallet configured.
                  │ /auth/nostr/*   ── claim ─►│  ├─► volume /data/nonces.json
                  │ /auth/solana/*  ── nonce ─►│  │   (single-use, TTL'd)
    x402 clients ►│ POST /v1/verify ─ $0.001 ─►│──┘
-                 └────────────────────────────┘
 ```
 
-Single Node.js service, pure-JS dependency stack. Sessions are stateless JWTs; only nonce hashes touch disk. The paid oracle is stateless by design — it never mints tokens, so replayed proofs confer nothing.
+## Gate Mode Examples
 
 ### Protect any service (Caddy)
 
 ```caddy
-example.com {
-    forward_auth wallet-auth:8080 {
-        uri /gate
+example.yourdomain.com {
+    forward_auth https://wallet-auth.up.railway.app {
+        uri /gate?url={scheme}://{host}{uri}
     }
-    reverse_proxy your-app:3000
+    reverse_proxy 127.0.0.1:3000
 }
 ```
 
 ### nginx equivalent
 
 ```nginx
-location = /_wagate { proxy_pass http://wallet-auth/gate; }
 location / {
-    auth_request /_wagate;
-    proxy_pass http://your-app;
+    auth_request /_wallet_auth;
+    error_page 401 = @wallet_login;
+    proxy_pass http://127.0.0.1:3000;
+}
+location = /_wallet_auth {
+    internal;
+    proxy_pass https://wallet-auth.up.railway.app/gate?url=$scheme://$host$request_uri;
+}
+location @wallet_login {
+    return 302 https://wallet-auth.up.railway.app/login?next=$scheme://$host$request_uri;
 }
 ```
 
 ## Post-Deploy
 
-1. Set `SESSION_SECRET` (random 32-byte hex) before exposing publicly.
-2. Set `PUBLIC_URL=${{RAILWAY_PUBLIC_DOMAIN}}` and redeploy once.
-3. Confirm `GET /health` returns `{"ok":true}`.
-4. Test each flow from the bundled `/login.html`.
-5. For x402 settlement, create a Coinbase CDP API key and set `X402_CDP_KEY_ID` / `X402_CDP_KEY_SECRET`.
+- Health check: `GET /health` returns `{"ok":true}`
+- Dashboard: visit your domain root for the sign-in page and live verifier
+- Paid path test: send an unpaid `POST /v1/verify` and you will receive a `402` with an x402 `PAYMENT-REQUIRED` header — pay it with any x402 client to complete the roundtrip
