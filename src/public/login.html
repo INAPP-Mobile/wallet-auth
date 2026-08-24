@@ -68,10 +68,12 @@
   const fail = (label) => (e) => status(`✗ ${e?.message || label || 'unexpected error'}`);
 
   // ---------- Ethereum (SIWE / EIP-4361) ----------
-  // Discovery is EIP-6963 first (every major wallet announces itself), with
-  // legacy injection points as fallback. Signing goes through ethers
-  // BrowserProvider, which normalizes personal_sign across wallets.
+  // Full attempt-loop: EACH wallet gets its own connect->sign->verify shot,
+  // so one misbehaving extension never blocks the others. ?debug=1 surfaces
+  // the exact failing step and JSON-RPC error object in the status line.
   document.getElementById('btn-siwe').onclick = async () => {
+    const debug = new URLSearchParams(location.search).has('debug');
+    const dbg = [];
     try {
       status('discovering wallets…');
       const announced = await collectAnnouncedProviders(window);
@@ -79,31 +81,48 @@
       if (!cands.length) {
         return status('✗ No Ethereum extension found (MetaMask / OKX / Rabby / Talisman…)');
       }
-      status(cands.length === 1 ? 'requesting accounts…' : `${cands.length} wallets found — requesting accounts…`);
-      const picked = await connectFirstWallet(cands);
-      status(`${picked.name} connected — check your wallet…`);
+      dbg.push(`wallets=${cands.map((c) => c.name).join(',')}`);
+      if (debug) { status(`[debug] ${dbg[0]}`); await new Promise((r) => setTimeout(r, 1500)); }
 
-      // Checksum BEFORE building anything. Some wallets (Talisman) return
-      // lowercase accounts AND reject personal_sign whose `from` param is
-      // not EIP-55 — so both the message line-2 and the from param must be
-      // checksummed. We drive personal_sign directly rather than through
-      // ethers' signer, which would echo back its raw cached account.
-      const address = ethers.getAddress(picked.address);
-      const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
-      const { nonce } = await nonceRes.json();
-
-      const message = buildSiweMessage({ origin, address, nonce });
-      const msgHex = ethers.hexlify(ethers.toUtf8Bytes(message));
-      const signature = await picked.provider.request({
-        method: 'personal_sign',
-        params: [msgHex, address],   // hex bytes + checksummed from: spec-exact
-      });
-      const res = await fetch('/auth/siwe/verify', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ message, signature }),
-      });
-      finish(await res.json());
+      const errs = [];
+      for (const c of cands) {
+        try {
+          dbg.push(c.name);
+          if (debug) status(`[debug] ${dbg.join(' → ')}`);
+          const accounts = await c.provider.request({ method: 'eth_requestAccounts' });
+          const raw = accounts?.[0];
+          if (!raw) { errs.push(`${c.name}: returned no account`); continue; }
+          const address = ethers.getAddress(raw);   // checksummed everywhere
+          // Best-effort chain switch; some wallets refuse to sign on
+          // networks they consider disabled for the origin.
+          await c.provider.request({
+            method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }],
+          }).catch(() => {});
+          const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
+          const { nonce } = await nonceRes.json();
+          const message = buildSiweMessage({ origin, address, nonce });
+          const msgHex = ethers.hexlify(ethers.toUtf8Bytes(message));
+          const signature = await c.provider.request({
+            method: 'personal_sign',
+            params: [msgHex, address],
+          });
+          const res = await fetch('/auth/siwe/verify', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ message, signature }),
+          });
+          return finish(await res.json());
+        } catch (err) {
+          if (isRejected(err)) return status('✗ request rejected in wallet');
+          errs.push(`${c.name}: ${err.message || String(err)}${err?.code != null ? ` (code ${err.code})` : ''}`);
+          if (debug) {
+            dbg.push(`ERR:${err.message || err}`);
+            status(`[debug] ${dbg.join(' → ')}`);
+            console.error('[wallet-auth debug]', c.name, err);
+          }
+        }
+      }
+      throw new Error(errs.join(' | ') || 'no wallet completed signing');
     } catch (e) { fail()(e); }
   };
 
