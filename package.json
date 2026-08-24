@@ -1,0 +1,24 @@
+{
+  "name": "wallet-auth",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Wallet signature verification API: SIWE + Nostr NIP-98 + Solana, with x402 pay-per-verify and forward-auth gate mode",
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bs58": "6.0.0",
+    "ethers": "6.17.0",
+    "express": "5.2.1",
+    "jose": "6.2.10",
+    "nostr-tools": "2.25.0",
+    "siwe": "3.0.0",
+    "tweetnacl": "1.0.3",
+    "x402-express": "1.2.0"
+  }
+}
