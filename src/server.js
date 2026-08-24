@@ -38,6 +38,12 @@ export async function createApp(overrides = {}) {
   const app = express();
   app.disable('x-powered-by');
 
+  // RAILWAY_PUBLIC_DOMAIN is a bare hostname — normalize to a full origin
+  // so NIP-98 u-tag binding and the UI sign against identical URLs.
+  if (cfg.publicUrl && !/^https?:\/\//i.test(cfg.publicUrl)) {
+    cfg.publicUrl = `https://${cfg.publicUrl}`;
+  }
+
   // Health first — must never be behind the paywall.
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
