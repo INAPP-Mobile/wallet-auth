@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>wallet-auth</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; background:#0b0e14; color:#e6e6e6; margin:0; }
+  main { max-width: 720px; margin: 3rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; } code, pre { background:#151a23; border-radius:6px; }
+  pre { padding:.8rem; overflow:auto; font-size:.8rem; }
+  table { border-collapse: collapse; width:100%; font-size:.85rem; }
+  th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid #222936; vertical-align:top; }
+  a { color:#7aa2f7; }
+  .pill { display:inline-block; background:#1c2333; border-radius:999px; padding:.15rem .7rem; margin-right:.4rem; font-size:.75rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🔐 wallet-auth</h1>
+  <p>Wallet signature verification API — SIWE (Ethereum), NIP-98 (Nostr), Solana.</p>
+  <div id="session"></div>
+  <p>
+    <a href="/login.html">Sign in →</a>
+  </p>
+
+  <h2>Endpoints</h2>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Auth</th><th>Purpose</th></tr>
+    <tr><td>GET</td><td>/health</td><td>—</td><td>Liveness probe</td></tr>
+    <tr><td>POST</td><td>/auth/siwe/nonce · /verify</td><td>free</td><td>EIP-4361 sign-in → session token</td></tr>
+    <tr><td>POST</td><td>/auth/nostr/verify</td><td>free</td><td>NIP-98 event sign-in → session token</td></tr>
+    <tr><td>POST</td><td>/auth/solana/nonce · /verify</td><td>free</td><td>ed25519 sign-in → session token</td></tr>
+    <tr><td>POST</td><td>/v1/verify</td><td>x402 $0.001</td><td>Stateless signature oracle</td></tr>
+    <tr><td>GET</td><td>/gate</td><td>session</td><td>Caddy/nginx forward-auth endpoint</td></tr>
+  </table>
+
+  <h2>Paid oracle example</h2>
+<pre>$ curl -X POST https://your-app.up.railway.app/v1/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"scheme":"solana","pubkey":"...","message":"hi","signature":"..."}'
+→ 402 Payment Required (X-PAYMENT required)
+→ 200 {"valid":true,"scheme":"solana","identity":{"pubkey":"..."}}</pre>
+
+  <h2>Protect any service (Caddy)</h2>
+<pre>example.com {
+  forward_auth wallet-auth:8080 {
+    uri /gate
+  }
+  reverse_proxy your-app:3000
+}</pre>
+
+  <div id="config"></div>
+</main>
+<script type="module" src="/app.js"></script>
+<script type="module">
+  import { showSession, loadConfig } from '/app.js';
+  showSession(document.getElementById('session'));
+  loadConfig(document.getElementById('config'));
+</script>
+</body>
+</html>

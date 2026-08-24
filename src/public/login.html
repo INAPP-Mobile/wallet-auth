@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · wallet-auth</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; background:#0b0e14; color:#e6e6e6; margin:0; }
+  main { max-width: 480px; margin: 4rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  button { display:block; width:100%; margin:.6rem 0; padding:.9rem 1rem; font-size:1rem;
+           background:#1c2333; color:#e6e6e6; border:1px solid #2a3447; border-radius:10px; cursor:pointer; }
+  button:hover:not(:disabled) { background:#242e42; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  #status { min-height:1.5rem; font-size:.85rem; color:#9aa5b5; }
+  a { color:#7aa2f7; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sign in with a wallet</h1>
+  <div id="status"></div>
+  <button id="btn-siwe">🦊 Ethereum (MetaMask / SIWE)</button>
+  <button id="btn-nostr">⚡ Nostr (NIP-98)</button>
+  <button id="btn-solana">☀️ Solana (Phantom)</button>
+  <p><a href="/">← back</a></p>
+</main>
+<script type="module">
+  import { setTokenCookie } from '/app.js';
+
+  // Minimal base58 (Bitcoin alphabet) encoder — enough for Phantom signatures.
+  const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  function toBase58(bytes) {
+    let digits = [0];
+    for (const byte of bytes) {
+      let carry = byte;
+      for (let j = 0; j < digits.length; j++) {
+        carry += digits[j] << 8;
+        digits[j] = carry % 58;
+        carry = (carry / 58) | 0;
+      }
+      while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+    }
+    let out = '';
+    for (let i = 0; bytes[i] === 0 && i < bytes.length - 1; i++) out += '1';
+    for (let i = digits.length - 1; i >= 0; i--) out += B58[digits[i]];
+    return out;
+  }
+
+  const status = (msg) => (document.getElementById('status').textContent = msg);
+  const params = new URLSearchParams(location.search);
+  const next = params.get('next') || '/';
+  const cfg = await (await fetch('/config')).json();
+  const origin = cfg.publicUrl || window.location.origin;
+
+  async function finish(data) {
+    if (!data.valid) return status(`✗ ${data.error || 'verification failed'}`);
+    setTokenCookie(data.token);
+    location.href = next.startsWith(origin) ? next : '/';
+  }
+
+  // ---------- Ethereum (SIWE / EIP-4361) ----------
+  document.getElementById('btn-siwe').onclick = async () => {
+    try {
+      status('requesting accounts…');
+      const provider = window.ethereum;
+      const [address] = await provider.request({ method: 'eth_requestAccounts' });
+      const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
+      const { nonce } = await nonceRes.json();
+
+      const message =
+        `${origin} wants you to sign in with your Ethereum account:\n${address}\n\n` +
+        `Sign in to wallet-auth\n\nURI: ${origin}/\nVersion: 1\nChain ID: 1\nNonce: ${nonce}\n` +
+        `Issued At: ${new Date().toISOString()}`;
+
+      status('check your wallet…');
+      const signature = await provider.request({
+        method: 'personal_sign',
+        params: [message, address],
+      });
+      const res = await fetch('/auth/siwe/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message, signature }),
+      });
+      finish(await res.json());
+    } catch (e) {
+      status(`✗ ${e.message}`);
+    }
+  };
+
+  // ---------- Nostr (NIP-98) ----------
+  document.getElementById('btn-nostr').onclick = async () => {
+    try {
+      if (!window.nostr) throw new Error('No Nostr extension found (Alby / nos2x)');
+      status('check your extension…');
+      // Build the NIP-98 event manually; window.nostr.signEvent fills id/pubkey/sig.
+      const event = await window.nostr.signEvent({
+        kind: 27235,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['u', `${origin}/auth/nostr`], ['method', 'POST']],
+        content: '',
+      });
+      const token = `Nostr ${btoa(JSON.stringify(event))}`;
+      const res = await fetch('/auth/nostr/verify', {
+        method: 'POST',
+        headers: { authorization: token },
+      });
+      finish(await res.json());
+    } catch (e) {
+      status(`✗ ${e.message}`);
+    }
+  };
+
+  // ---------- Solana ----------
+  document.getElementById('btn-solana').onclick = async () => {
+    try {
+      const provider = window.solana || window.phantom?.solana;
+      if (!provider) throw new Error('Phantom not detected');
+      status('connecting…');
+      await provider.connect();
+      const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
+      const { nonce } = await nonceRes.json();
+      const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
+      status('check Phantom…');
+      const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
+      const res = await fetch('/auth/solana/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          pubkey: provider.publicKey.toString(),
+          message,
+          signature: toBase58(signature),
+        }),
+      });
+      finish(await res.json());
+    } catch (e) {
+      status(`✗ ${e.message}`);
+    }
+  };
+</script>
+</body>
+</html>
