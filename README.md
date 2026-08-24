@@ -89,6 +89,7 @@ Gate mode is the default — no wallet needed. To sell verifications at $0.001 p
 | `SESSION_TTL_HOURS` | no | `24` | Session token lifetime |
 | `NONCE_TTL_MINUTES` | no | `10` | Challenge lifetime |
 | `GATE_COOKIE_NAME` | no | `wa_session` | Session cookie checked by `/gate` |
+| `DATA_DIR` | auto | `/data` | Nonce-store location; set by the entrypoint to the volume mount |
 | `PORT` | auto | `8080` | Set by Railway |
 
 ## Architecture

@@ -12,7 +12,13 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
  */
 export async function createNonceStore(path, { ttlMs = 10 * 60 * 1000 } = {}) {
   const ttl = ttlMs;
-  await mkdir(dirname(path), { recursive: true }).catch(() => {});
+  try {
+    await mkdir(dirname(path), { recursive: true });
+  } catch (err) {
+    // Never silent: an unwritable data dir must be visible at boot, not
+    // discovered as ENOENT on the first sign-in flush.
+    console.error(`[wallet-auth] cannot create data dir ${dirname(path)}: ${err.message}`);
+  }
   let map = {};
   try {
     map = JSON.parse(await readFile(path, 'utf8'));
@@ -22,7 +28,18 @@ export async function createNonceStore(path, { ttlMs = 10 * 60 * 1000 } = {}) {
 
   async function flush() {
     const tmp = `${path}.tmp`;
-    await writeFile(tmp, JSON.stringify(map));
+    try {
+      await writeFile(tmp, JSON.stringify(map));
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        // Directory vanished or was never created — recreate once and retry
+        // before giving up so a late volume mount doesn't brick sign-in.
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(tmp, JSON.stringify(map));
+      } else {
+        throw err;
+      }
+    }
     await rename(tmp, path); // atomic swap — crash-safe
   }
 
