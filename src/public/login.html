@@ -150,47 +150,67 @@
   };
 
   // ---------- Solana ----------
+  // Phantom's Solana provider can throw bare "Unexpected error" from both
+  // connect() and signMessage(); every wallet-specific call below is wrapped
+  // so no raw extension error ever reaches the UI unprefixed. A rejected
+  // connect (4001) stops the flow; other connect failures fall through —
+  // signing may still work. Each candidate gets a full attempt.
   document.getElementById('btn-solana').onclick = async () => {
+    const debug = new URLSearchParams(location.search).has('debug');
+    const dbg = [];
     try {
       const candidates = solanaCandidates(window);
-      if (!candidates.length) throw new Error('Phantom not detected');
+      if (!candidates.length) throw new Error('No Solana wallet found (install Phantom or Solflare)');
       status('connecting…');
-      let provider, name;
       const errors = [];
+      let done = false;
       for (const p of candidates) {
-        name = p.isPhantom ? 'Phantom' : 'Solana wallet';
+        const name = p.isPhantom ? 'Phantom' : 'Solana wallet';
         try {
-          // connect() is best-effort only — Phantom sometimes throws
-          // "Unexpected error" here while signMessage still works fine.
-          await p.connect().catch(() => {});
-          provider = p;
+          try {
+            await p.connect();
+          } catch (err) {
+            if (isRejected(err)) throw new Error(`${name}: connection rejected`);
+            if (debug) { dbg.push(`${name}.connect:${err.message || err}`); status(`[debug] ${dbg.join(' → ')}`); }
+          }
+          dbg.push(name);
+          if (debug) status(`[debug] ${dbg.join(' → ')}`);
+          status(`check ${name}…`);
+          const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
+          if (!nonceRes.ok) throw new Error(`${name}: nonce endpoint HTTP ${nonceRes.status}`);
+          const { nonce } = await nonceRes.json();
+          const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
+          let signed;
+          try {
+            signed = await p.signMessage(new TextEncoder().encode(message), 'utf8');
+          } catch (err) {
+            throw new Error(`${name}: sign failed — ${err.message || String(err)}`);
+          }
+          // Newer Phantom returns {signature, publicKey}; older just the bytes.
+          const rawSig = signed?.signature ?? signed;
+          const pubkeyStr = (signed?.publicKey ?? p.publicKey)?.toString?.();
+          if (!pubkeyStr) throw new Error(`${name}: no public key returned`);
+          const res = await fetch('/auth/solana/verify', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              pubkey: pubkeyStr,
+              message,
+              signature: toBase58(rawSig),
+            }),
+          });
+          const body = await res.json();
+          if (!body.valid) throw new Error(`${name}: ${body.error || 'verification failed'}`);
+          finish(body);
+          done = true;
           break;
         } catch (err) {
-          if (err?.code === 4001 || /reject/i.test(err?.message || '')) throw new Error(`${name}: connection rejected`);
-          errors.push(`${name}: ${err.message || String(err)}`);
-          provider = null;
+          if (/rejected/i.test(err?.message || '')) return status(`✗ ${err.message}`);
+          errors.push(err.message);
+          if (debug) { dbg.push(`ERR:${err.message}`); status(`[debug] ${dbg.join(' → ')}`); console.error('[wallet-auth solana]', p, err); }
         }
       }
-      if (!provider) throw new Error(errors.join(' | ') || 'no Solana wallet connected');
-      status(`check ${name}…`);
-      const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
-      const { nonce } = await nonceRes.json();
-      const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
-      const signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
-      // Newer Phantom returns {signature, publicKey}; older just the bytes.
-      const rawSig = signed?.signature ?? signed;
-      const pubkeyStr = (signed?.publicKey ?? provider.publicKey)?.toString();
-      if (!pubkeyStr) throw new Error(`${name}: no public key returned`);
-      const res = await fetch('/auth/solana/verify', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          pubkey: pubkeyStr,
-          message,
-          signature: toBase58(rawSig),
-        }),
-      });
-      finish(await res.json());
+      if (!done) throw new Error(errors.join(' | ') || 'no Solana wallet completed signing');
     } catch (e) { fail()(e); }
   };
 </script>
