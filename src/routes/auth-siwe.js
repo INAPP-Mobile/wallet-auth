@@ -1,54 +1,49 @@
 import { Router, json } from 'express';
-import { SiweMessage } from 'siwe';
 import { mintToken } from '../token.js';
+import { verifySiwe } from '../verify/siwe.js';
 
 /**
  * SIWE (EIP-4361) auth routes.
  * POST /nonce  -> { nonce }
  * POST /verify { message, signature } -> { valid, token?, address?, chainId? }
  *
- * Nonce lifecycle: must exist in the store BEFORE verification runs
- * (fast-fail on stale/forged nonces) but is consumed only AFTER a
- * successful signature check, so bad signatures don't burn nonces.
+ * Nonce lifecycle: signature is verified FIRST; the message nonce is
+ * consumed only after a successful check, so bad signatures never
+ * burn challenges.
  */
 export function buildSiweRouter({ nonceStore, secret, ttl = process.env.SESSION_TTL_HOURS || '24h' }) {
   const router = Router();
   router.use(json());
+
+  const ttlArg = String(ttl).match(/^\d+$/) ? `${ttl}h` : ttl;
 
   async function nonce() {
     return { body: { nonce: await nonceStore.issue() } };
   }
 
   async function verify({ message, signature }) {
-    let msg;
+    let result;
     try {
-      msg = new SiweMessage(String(message));
-    } catch {
-      return { status: 400, body: { valid: false, error: 'Malformed EIP-4361 message' } };
-    }
-    try {
-      const res = await msg.verify({ signature });
-      if (!res.success) throw new Error(res.error?.type || 'verification failed');
+      result = await verifySiwe({ message, signature });
     } catch (err) {
-      return { status: 401, body: { valid: false, error: `Signature invalid: ${err.message}` } };
+      const status = err.status || (String(err.message).includes('Malformed') ? 400 : 401);
+      return { status, body: { valid: false, error: `Signature invalid: ${err.message}` } };
     }
-    // Signature valid — now atomically consume the nonce (replay guard).
-    if (!(await nonceStore.consume(msg.nonce))) {
+    if (!result.nonce || !(await nonceStore.consume(result.nonce))) {
       return { status: 409, body: { valid: false, error: 'Nonce unknown, used, or expired' } };
     }
     const token = await mintToken(
-      { sub: msg.address, scheme: 'siwe', chainId: msg.chainId ?? null },
+      { sub: result.address, scheme: 'siwe', chainId: result.chainId },
       secret,
-      String(ttl).match(/^\d+$/) ? `${ttl}h` : ttl,
+      ttlArg,
     );
-    return { status: 200, body: { valid: true, token, address: msg.address, chainId: msg.chainId ?? null } };
+    return {
+      status: 200,
+      body: { valid: true, token, address: result.address, chainId: result.chainId },
+    };
   }
 
-  router.post('/nonce', async (_req, res) => {
-    const r = await nonce();
-    res.json(r.body);
-  });
-
+  router.post('/nonce', async (_req, res) => res.json((await nonce()).body));
   router.post('/verify', async (req, res) => {
     const { message, signature } = req.body ?? {};
     if (!message || !signature) {

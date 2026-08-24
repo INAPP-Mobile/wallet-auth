@@ -1,20 +1,16 @@
 import { Router, json } from 'express';
-import { nip98, verifyEvent } from 'nostr-tools';
 import { mintToken } from '../token.js';
+import { verifyNip98 } from '../verify/nostr.js';
 
 /**
- * NIP-98 (Nostr HTTP Auth) verification route.
+ * NIP-98 (Nostr HTTP Auth) auth route.
  * POST /verify  { token }  or  Authorization: Nostr <base64>
  * -> { valid, token?, pubkey? }
  *
- * Validation chain: base64 unpack -> event id hash + schnorr sig
- * (verifyEvent) -> kind/timestamp/url/method (nip98.validateEvent)
- * -> event.id consumed as replay nonce.
- *
  * The `u` tag must match EXACTLY ONE expected URL:
  *   ${PUBLIC_URL}/auth/nostr if PUBLIC_URL is set, else request-derived origin.
- * There is intentionally no loose fallback — a signed event naming any other
- * URL must not authenticate here.
+ * No loose fallback — a signed event naming any other URL must not authenticate.
+ * Replay guard: the event id is claimed once via the shared nonce store.
  */
 export function buildNostrRouter({ nonceStore, secret, publicUrl, ttl = process.env.SESSION_TTL_HOURS || '24h' }) {
   const router = Router();
@@ -30,32 +26,17 @@ export function buildNostrRouter({ nonceStore, secret, publicUrl, ttl = process.
   }
 
   async function verify({ token, url }) {
-    let event;
+    let result;
     try {
-      event = await nip98.unpackEventFromToken(token);
-    } catch {
-      return { status: 400, body: { valid: false, error: 'Malformed Nostr auth token' } };
-    }
-
-    if (!verifyEvent(event)) {
-      return { status: 401, body: { valid: false, error: 'Event id/signature invalid' } };
-    }
-
-    try {
-      if (!(await nip98.validateEvent(event, url, 'post'))) {
-        return { status: 401, body: { valid: false, error: 'NIP-98 validation failed (url/method/time)' } };
-      }
+      result = await verifyNip98({ token, url });
     } catch (err) {
-      return { status: 401, body: { valid: false, error: `NIP-98 validation failed: ${err.message}` } };
+      return { status: err.status || 401, body: { valid: false, error: err.message } };
     }
-
-    // Replay guard: the event id is claimed once, forever.
-    if (!(await nonceStore.claim(event.id))) {
+    if (!(await nonceStore.claim(result.eventId))) {
       return { status: 409, body: { valid: false, error: 'Event already used or expired' } };
     }
-
-    const jwt = await mintToken({ sub: event.pubkey, scheme: 'nostr' }, secret, ttlArg);
-    return { status: 200, body: { valid: true, token: jwt, pubkey: event.pubkey } };
+    const jwt = await mintToken({ sub: result.pubkey, scheme: 'nostr' }, secret, ttlArg);
+    return { status: 200, body: { valid: true, token: jwt, pubkey: result.pubkey } };
   }
 
   async function handler(req, res) {
@@ -69,10 +50,6 @@ export function buildNostrRouter({ nonceStore, secret, publicUrl, ttl = process.
   }
 
   router.post('/verify', handler);
-
-  router._test = {
-    verify,
-    expectedUrl,
-  };
+  router._test = { verify, expectedUrl };
   return router;
 }
