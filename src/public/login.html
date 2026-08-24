@@ -173,7 +173,8 @@
             if (isRejected(err)) throw new Error(`${name}: connection rejected`);
             if (debug) { dbg.push(`${name}.connect:${err.message || err}`); status(`[debug] ${dbg.join(' → ')}`); }
           }
-          dbg.push(name);
+          const srcTag = p === window.phantom?.solana ? 'phantom.solana' : 'window.solana';
+          dbg.push(`${name}[${srcTag}${p.isConnected === false ? ',unconnected' : ''}]`);
           if (debug) status(`[debug] ${dbg.join(' → ')}`);
           status(`check ${name}…`);
           const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
