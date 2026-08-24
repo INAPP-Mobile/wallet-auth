@@ -183,8 +183,21 @@
           let signed;
           try {
             signed = await p.signMessage(new TextEncoder().encode(message), 'utf8');
-          } catch (err) {
-            throw new Error(`${name}: sign failed — ${err.message || String(err)}`);
+          } catch (err1) {
+            // One recovery shot: re-establish the session explicitly, then
+            // sign again. Covers the dead-session case where an earlier
+            // connect hiccup leaves signMessage throwing -32603.
+            try {
+              await p.connect();
+              signed = await p.signMessage(new TextEncoder().encode(message), 'utf8');
+              if (debug) { dbg.push(`${name}.recovered`); status(`[debug] ${dbg.join(' → ')}`); }
+            } catch (err2) {
+              const msg = String(err2?.message || err2);
+              const hint = /unexpected error/i.test(msg)
+                ? ' — try updating or reinstalling the Phantom extension, and check for a blocked popup'
+                : '';
+              throw new Error(`${name}: sign failed — ${msg}${hint}`);
+            }
           }
           // Newer Phantom returns {signature, publicKey}; older just the bytes.
           const rawSig = signed?.signature ?? signed;
