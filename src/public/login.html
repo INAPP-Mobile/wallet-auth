@@ -166,7 +166,11 @@
       } catch { /* non-standard layout */ }
       const candidates = [
         ...registered.map((w, i) => ({ p: w, name: w.name || `registered-wallet-${i}`, tag: 'standard' })),
-        ...solanaCandidates(window).map((p) => ({ p, name: p.isPhantom ? 'Phantom' : 'Solana wallet', tag: 'injected' })),
+        ...solanaCandidates(window).map((p) => ({
+          p,
+          name: p.isPhantom ? 'Phantom' : (p.isSolflare ? 'Solflare' : 'Solana wallet'),
+          tag: 'injected',
+        })),
       ];
       if (!candidates.length) throw new Error('No Solana wallet found (install Phantom or Solflare)');
       status(`connecting… (${candidates.length} found)`);
