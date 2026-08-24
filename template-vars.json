@@ -1,0 +1,52 @@
+{
+  "SESSION_SECRET": {
+    "defaultValue": "${{secret(64)}}",
+    "description": "HS256 signing secret for session tokens. Auto-generated per deploy.",
+    "isOptional": false
+  },
+  "PUBLIC_URL": {
+    "defaultValue": "${{RAILWAY_PUBLIC_DOMAIN}}",
+    "description": "Canonical public origin. Used for NIP-98 URL binding and the login UI. Resolves on second deploy.",
+    "isOptional": false
+  },
+  "PAID_VERIFY": {
+    "defaultValue": "on",
+    "description": "Set to 'off' to disable the x402 paywall and run pure gate-mode.",
+    "isOptional": true
+  },
+  "X402_PAY_TO": {
+    "defaultValue": "0x90b0dC893406d6eA63bb077ED59F5e8340f98d84",
+    "description": "Wallet address that receives x402 payments ($0.001 per verification). Replace with your own address.",
+    "isOptional": false
+  },
+  "X402_PRICE_USD": {
+    "defaultValue": "$0.001",
+    "description": "Price per signature verification through POST /v1/verify.",
+    "isOptional": true
+  },
+  "X402_NETWORK": {
+    "defaultValue": "base",
+    "description": "x402 settlement network.",
+    "isOptional": true
+  },
+  "X402_FACILITATOR_URL": {
+    "defaultValue": "https://www.x402.org/facilitator",
+    "description": "x402 facilitator endpoint used to verify and settle payments.",
+    "isOptional": true
+  },
+  "SESSION_TTL_HOURS": {
+    "defaultValue": "24",
+    "description": "Session token lifetime in hours.",
+    "isOptional": true
+  },
+  "NONCE_TTL_MINUTES": {
+    "defaultValue": "10",
+    "description": "Sign-in challenge lifetime in minutes.",
+    "isOptional": true
+  },
+  "GATE_COOKIE_NAME": {
+    "defaultValue": "wa_session",
+    "description": "Cookie name checked by the forward-auth /gate endpoint.",
+    "isOptional": true
+  }
+}

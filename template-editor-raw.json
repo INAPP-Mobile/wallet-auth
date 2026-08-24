@@ -1,0 +1,42 @@
+{
+  "SESSION_SECRET": {
+    "value": "${{secret(64)}}",
+    "description": "Auto-generated HS256 signing secret."
+  },
+  "PUBLIC_URL": {
+    "value": "${{RAILWAY_PUBLIC_DOMAIN}}",
+    "description": "Canonical public origin (resolves on second deploy)."
+  },
+  "PAID_VERIFY": {
+    "value": "on",
+    "description": "'off' disables the x402 paywall (gate-only mode)."
+  },
+  "X402_PAY_TO": {
+    "value": "0x90b0dC893406d6eA63bb077ED59F5e8340f98d84",
+    "description": "Wallet receiving x402 payments — replace with your own."
+  },
+  "X402_PRICE_USD": {
+    "value": "$0.001",
+    "description": "Price per oracle verification."
+  },
+  "X402_NETWORK": {
+    "value": "base",
+    "description": "x402 settlement network."
+  },
+  "X402_FACILITATOR_URL": {
+    "value": "https://www.x402.org/facilitator",
+    "description": "x402 facilitator endpoint."
+  },
+  "SESSION_TTL_HOURS": {
+    "value": "24",
+    "description": "Session token lifetime (hours)."
+  },
+  "NONCE_TTL_MINUTES": {
+    "value": "10",
+    "description": "Challenge lifetime (minutes)."
+  },
+  "GATE_COOKIE_NAME": {
+    "value": "wa_session",
+    "description": "Forward-auth session cookie name."
+  }
+}
