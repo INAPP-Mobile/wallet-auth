@@ -74,6 +74,12 @@
     return [...new Set(list)];
   }
   const rejected = (e) => e?.code === 4001 || /reject/i.test(e?.message || '');
+  const walletName = (p) =>
+    p?.isPhantom ? 'Phantom' :
+    p?.isTalisman ? 'Talisman' :
+    p?.isMetaMask ? 'MetaMask' :
+    p?.isCoinbaseWallet ? 'Coinbase Wallet' :
+    p?.isTrust ? 'Trust' : 'wallet';
 
   // ---------- Ethereum (SIWE / EIP-4361) ----------
   document.getElementById('btn-siwe').onclick = async () => {
@@ -89,7 +95,7 @@
           if (a) { provider = p; address = a; break; }
         } catch (err) {
           if (rejected(err)) throw new Error('connection rejected in wallet');
-          errors.push(err.message || String(err));
+          errors.push(`${walletName(p)}: ${err.message || String(err)}`);
         }
       }
       if (!address) throw new Error(errors.join(' | ') || 'no wallet approved the connection');
@@ -109,9 +115,13 @@
         `Issued At: ${new Date().toISOString()}`;
 
       status('check your wallet…');
+      // EIP-191: pass the message as hex bytes. MetaMask tolerates raw UTF-8
+      // strings, but Talisman / Phantom-EVM reject them as invalid formatting.
+      const msgHex = '0x' + [...new TextEncoder().encode(message)]
+        .map((b) => b.toString(16).padStart(2, '0')).join('');
       const signature = await provider.request({
         method: 'personal_sign',
-        params: [message, address],
+        params: [msgHex, address],
       });
       const res = await fetch('/auth/siwe/verify', {
         method: 'POST',
@@ -152,7 +162,14 @@
     try {
       // Prefer the real Phantom bridge; window.solana can be a stub when
       // multiple extensions are installed (Talisman claims it on some setups).
-      const candidates = [window.phantom?.solana, window.solana].filter(Boolean);
+      // Dedupe — window.phantom.solana and window.solana are often the SAME
+      // object, and retrying it just duplicates the error.
+      const seen = new Set();
+      const candidates = [window.phantom?.solana, window.solana].filter((p) => {
+        if (!p || seen.has(p) || typeof p.connect !== 'function') return false;
+        seen.add(p);
+        return true;
+      });
       if (!candidates.length) throw new Error('Phantom not detected');
       status('connecting…');
       let provider;
@@ -160,8 +177,8 @@
       for (const p of candidates) {
         try { await p.connect(); provider = p; break; }
         catch (err) {
-          if (rejected(err)) throw new Error('connection rejected in wallet');
-          errors.push(err.message || String(err));
+          if (rejected(err)) throw new Error(`${walletName(p)}: connection rejected`);
+          errors.push(`${walletName(p)}: ${err.message || String(err)}`);
         }
       }
       if (!provider) throw new Error(errors.join(' | ') || 'no Solana wallet connected');
