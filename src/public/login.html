@@ -21,13 +21,18 @@
 <main>
   <h1>Sign in with a wallet</h1>
   <div id="status"></div>
-  <button id="btn-siwe">🦊 Ethereum (MetaMask / SIWE)</button>
+  <button id="btn-siwe">🦊 Ethereum (SIWE)</button>
   <button id="btn-nostr">⚡ Nostr (NIP-98)</button>
   <button id="btn-solana">☀️ Solana (Phantom)</button>
   <p><a href="/">← back</a></p>
 </main>
+<script src="/vendor/ethers.umd.min.js"></script>
 <script type="module">
   import { setTokenCookie } from '/app.js';
+  import {
+    collectAnnouncedProviders, legacyProviders, evmCandidates,
+    connectFirstWallet, buildSiweMessage, solanaCandidates,
+  } from '/wallet-core.js';
 
   // Minimal base58 (Bitcoin alphabet) encoder — enough for Phantom signatures.
   const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -60,78 +65,39 @@
     location.href = next.startsWith(origin) ? next : '/';
   }
 
-  // ---------- Multi-wallet discovery ----------
-  // With several extensions installed (Phantom + Talisman + MetaMask…) each
-  // tries to claim window.ethereum; the survivor may not be the connected
-  // one and throws generic "Unexpected error". Enumerate all candidates and
-  // try them until one approves.
-  function evmProviders() {
-    const list = [];
-    if (Array.isArray(window.ethereum)) list.push(...window.ethereum);
-    else if (window.ethereum?.providers?.length) list.push(...window.ethereum.providers);
-    else if (window.ethereum) list.push(window.ethereum);
-    if (window.talismanEth) list.push(window.talismanEth);
-    return [...new Set(list)];
-  }
-  const rejected = (e) => e?.code === 4001 || /reject/i.test(e?.message || '');
-  const walletName = (p) =>
-    p?.isPhantom ? 'Phantom' :
-    p?.isTalisman ? 'Talisman' :
-    p?.isMetaMask ? 'MetaMask' :
-    p?.isCoinbaseWallet ? 'Coinbase Wallet' :
-    p?.isTrust ? 'Trust' : 'wallet';
+  const fail = (label) => (e) => status(`✗ ${e?.message || label || 'unexpected error'}`);
 
   // ---------- Ethereum (SIWE / EIP-4361) ----------
+  // Discovery is EIP-6963 first (every major wallet announces itself), with
+  // legacy injection points as fallback. Signing goes through ethers
+  // BrowserProvider, which normalizes personal_sign across wallets.
   document.getElementById('btn-siwe').onclick = async () => {
     try {
-      const cands = evmProviders();
-      if (!cands.length) return status('✗ No Ethereum extension found (MetaMask / OKX / Talisman…)');
-      status(`requesting accounts (${cands.length} wallet${cands.length > 1 ? 's' : ''} found)…`);
-      let address, provider;
-      const errors = [];
-      for (const p of cands) {
-        try {
-          const [a] = await p.request({ method: 'eth_requestAccounts' });
-          if (a) { provider = p; address = a; break; }
-        } catch (err) {
-          if (rejected(err)) throw new Error('connection rejected in wallet');
-          errors.push(`${walletName(p)}: ${err.message || String(err)}`);
-        }
+      status('discovering wallets…');
+      const announced = await collectAnnouncedProviders(window);
+      const cands = evmCandidates(announced, legacyProviders(window));
+      if (!cands.length) {
+        return status('✗ No Ethereum extension found (MetaMask / OKX / Rabby / Talisman…)');
       }
-      if (!address) throw new Error(errors.join(' | ') || 'no wallet approved the connection');
+      status(cands.length === 1 ? 'requesting accounts…' : `${cands.length} wallets found — requesting accounts…`);
+      const picked = await connectFirstWallet(cands);
+      status(`${picked.name} connected — check your wallet…`);
 
-      // Some wallets (OKX, others) return all-lowercase accounts; SIWE line 2
-      // must be EIP-55 checksummed. Server checksums it before we sign —
-      // the signature covers exact message bytes.
-      const csRes = await fetch(`/auth/siwe/checksum?address=${encodeURIComponent(address)}`);
-      if (!csRes.ok) return status('✗ invalid Ethereum address from wallet');
-      address = (await csRes.json()).address;
+      const provider = new ethers.BrowserProvider(picked.provider);
+      const signer = await provider.getSigner();     // throws if user rejects
+      const address = await signer.getAddress();     // EIP-55 checksummed
       const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
 
-      const message =
-        `${origin} wants you to sign in with your Ethereum account:\n${address}\n\n` +
-        `Sign in to wallet-auth\n\nURI: ${origin}/\nVersion: 1\nChain ID: 1\nNonce: ${nonce}\n` +
-        `Issued At: ${new Date().toISOString()}`;
-
-      status('check your wallet…');
-      // EIP-191: pass the message as hex bytes. MetaMask tolerates raw UTF-8
-      // strings, but Talisman / Phantom-EVM reject them as invalid formatting.
-      const msgHex = '0x' + [...new TextEncoder().encode(message)]
-        .map((b) => b.toString(16).padStart(2, '0')).join('');
-      const signature = await provider.request({
-        method: 'personal_sign',
-        params: [msgHex, address],
-      });
+      const message = buildSiweMessage({ origin, address, nonce });
+      const signature = await signer.signMessage(message);
       const res = await fetch('/auth/siwe/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message, signature }),
       });
       finish(await res.json());
-    } catch (e) {
-      status(`✗ ${e.message}`);
-    }
+    } catch (e) { fail()(e); }
   };
 
   // ---------- Nostr (NIP-98) ----------
@@ -152,40 +118,31 @@
         headers: { authorization: token },
       });
       finish(await res.json());
-    } catch (e) {
-      status(`✗ ${e.message}`);
-    }
+    } catch (e) { fail('Nostr error')(e); }
   };
 
   // ---------- Solana ----------
   document.getElementById('btn-solana').onclick = async () => {
     try {
-      // Prefer the real Phantom bridge; window.solana can be a stub when
-      // multiple extensions are installed (Talisman claims it on some setups).
-      // Dedupe — window.phantom.solana and window.solana are often the SAME
-      // object, and retrying it just duplicates the error.
-      const seen = new Set();
-      const candidates = [window.phantom?.solana, window.solana].filter((p) => {
-        if (!p || seen.has(p) || typeof p.connect !== 'function') return false;
-        seen.add(p);
-        return true;
-      });
+      const candidates = solanaCandidates(window);
       if (!candidates.length) throw new Error('Phantom not detected');
       status('connecting…');
-      let provider;
+      let provider, name;
       const errors = [];
       for (const p of candidates) {
+        name = p.isPhantom ? 'Phantom' : 'Solana wallet';
         try { await p.connect(); provider = p; break; }
         catch (err) {
-          if (rejected(err)) throw new Error(`${walletName(p)}: connection rejected`);
-          errors.push(`${walletName(p)}: ${err.message || String(err)}`);
+          if (err?.code === 4001 || /reject/i.test(err?.message || '')) throw new Error(`${name}: connection rejected`);
+          errors.push(`${name}: ${err.message || String(err)}`);
+          provider = null;
         }
       }
       if (!provider) throw new Error(errors.join(' | ') || 'no Solana wallet connected');
+      status(`check ${name}…`);
       const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
       const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
-      status(provider === window.phantom?.solana ? 'check Phantom…' : 'check your wallet…');
       const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
       const res = await fetch('/auth/solana/verify', {
         method: 'POST',
@@ -197,9 +154,7 @@
         }),
       });
       finish(await res.json());
-    } catch (e) {
-      status(`✗ ${e.message}`);
-    }
+    } catch (e) { fail()(e); }
   };
 </script>
 </body>

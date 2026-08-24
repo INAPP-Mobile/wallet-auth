@@ -48,7 +48,16 @@ None beyond Railway itself — no companion services, no external databases. The
 - **Replay protection built in** — single-use server challenges stored on a persistent volume; bad signatures never burn nonces
 - **Free sign-in flows** — `/auth/siwe`, `/auth/nostr`, `/auth/solana` issue stateless HS256 session tokens without payment
 - **Gate mode** — drop-in `forward_auth` for Caddy and `auth_request` for nginx; any service becomes wallet-gated in three lines of config
-- **Bundled login UI** — working MetaMask / Alby-nos2x / Phantom sign-in pages out of the box
+- **Bundled login UI** — working MetaMask / OKX / Rabby / Talisman / Phantom sign-in pages out of the box
+
+## Wallet Compatibility
+
+The login page is built on standards rather than per-wallet patches, so any conformant wallet works by construction:
+
+- **EIP-6963** multi-wallet discovery — every installed extension announces itself; no more "last extension wins" conflicts
+- **ethers `BrowserProvider`** signing — normalizes `personal_sign` formatting across wallet families (hex-only wallets like Talisman/Phantom-EVM and lenient ones like MetaMask all work)
+- **EIP-55 normalization server-side** — wallets that return lowercase accounts (OKX) are checksummed before signing
+- Regression-tested against a simulated wallet matrix (MetaMask / Talisman / Phantom-EVM / OKX profiles): `node scripts/e2e/wallet-matrix.mjs`
 
 ## Quick Start
 
