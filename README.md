@@ -1,6 +1,6 @@
 # Wallet Auth API
 
-[![Deploy to Railway](https://railway.app/button.svg)](https://railway.com/deploy/TEMPLATE_CODE)
+[![Deploy to Railway](https://railway.app/button.svg)](https://railway.com/deploy/gG0NEC)
 
 Wallet signature verification API for the agent economy. Verify **SIWE** (Ethereum/EIP-4361), **NIP-98** (Nostr HTTP auth), and **Solana ed25519** signatures over one HTTP interface — with x402 micropayments ($0.001 per oracle call) and a free forward-auth gate mode that protects any service behind Caddy or nginx.
 
