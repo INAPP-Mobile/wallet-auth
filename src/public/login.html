@@ -31,7 +31,7 @@
   import { setTokenCookie } from '/app.js';
   import {
     collectAnnouncedProviders, legacyProviders, evmCandidates,
-    connectFirstWallet, buildSiweMessage, solanaCandidates,
+    connectFirstWallet, demotePhantomEvm, buildSiweMessage, solanaCandidates,
   } from '/wallet-core.js';
 
   // Minimal base58 (Bitcoin alphabet) encoder — enough for Phantom signatures.
@@ -87,8 +87,7 @@
       dbg.push(`wallets=${cands.map((c) => c.name).join(',')}`);
       if (debug) { status(`[debug] ${dbg[0]}`); await new Promise((r) => setTimeout(r, 1500)); }
 
-      const errs = [];
-      for (const c of cands) {
+      for (const c of demotePhantomEvm(cands)) {
         try {
           dbg.push(c.name);
           if (debug) status(`[debug] ${dbg.join(' → ')}`);

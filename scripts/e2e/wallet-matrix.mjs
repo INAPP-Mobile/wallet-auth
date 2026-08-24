@@ -15,14 +15,15 @@
 import { createApp } from '../../src/server.js';
 import { Wallet, getAddress, toUtf8Bytes, hexlify } from 'ethers';
 import {
-  evmCandidates, legacyProviders, connectFirstWallet, buildSiweMessage,
+  evmCandidates, legacyProviders, connectFirstWallet, demotePhantomEvm,
+  buildSiweMessage,
 } from '../../src/public/wallet-core.js';
 
 const HEX_RE = /^0x[0-9a-fA-F]+$/;
 const hexToBytes = (hex) => Uint8Array.from(hex.slice(2).match(/.{2}/g).map((h) => parseInt(h, 16)));
 const BAD_FORMAT = "The app's signature request cannot be shown due to invalid formatting.";
 
-function makeWalletProfile({ label, accountCase }) {
+function makeWalletProfile({ label, accountCase, signBehavior = 'ok' }) {
   const w = Wallet.createRandom();
   const account = accountCase === 'lower' ? w.address.toLowerCase() : w.address;
   return {
@@ -30,13 +31,17 @@ function makeWalletProfile({ label, accountCase }) {
     w,
     provider: {
       isTalisman: label === 'talisman',
-      isPhantom: label === 'phantom-evm',
+      isPhantom: /phantom/i.test(label),
       isMetaMask: label === 'metamask',
       async request({ method, params }) {
         if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
         if (method === 'eth_chainId') return '0x1';
         if (method === 'net_version') return '1';
+        if (method === 'wallet_switchEthereumChain') return null;
         if (method === 'personal_sign') {
+          // Reproduce Phantom-EVM's real-world failure: generic throw on
+          // valid requests while other methods work fine.
+          if (signBehavior === 'unexpected-error') throw new Error('Unexpected error');
           const [msg, from] = params ?? [];
           // Strict wallets reject BOTH non-hex messages and non-EIP-55 from.
           if (!HEX_RE.test(msg || '')) throw new Error(BAD_FORMAT);
@@ -60,6 +65,14 @@ const PROFILES = [
   makeWalletProfile({ label: 'okx', accountCase: 'lower' }),
 ];
 
+// The exact live scenario: Phantom's EVM provider announces FIRST (typical
+// injection order) but throws "Unexpected error" at personal_sign. Login
+// must still succeed through a later candidate.
+const BROKEN_FIRST = [
+  makeWalletProfile({ label: 'phantom-evm-broken', accountCase: 'checksum', signBehavior: 'unexpected-error' }),
+  makeWalletProfile({ label: 'talisman', accountCase: 'lower' }),
+];
+
 const { app } = await createApp({
   dataDir: `/tmp/wa-matrix-${Date.now()}`,
   secret: 'matrix-secret-0123456789abcdefghijklmnop',
@@ -70,8 +83,10 @@ await new Promise((r) => srv.on('listening', r));
 const origin = `http://127.0.0.1:${srv.address().port}`;
 
 let pass = 0;
-console.log('profile       result');
+let total = 0;
+console.log('profile            result');
 for (const profile of PROFILES) {
+  total++;
   const { label, w } = profile;
   try {
     // --- exactly what login.html does ---
@@ -95,12 +110,51 @@ for (const profile of PROFILES) {
     if (body.address.toLowerCase() !== getAddress(w.address).toLowerCase()) {
       throw new Error(`address mismatch ${body.address}`);
     }
-    console.log(`${label.padEnd(13)} valid ✓`);
+    console.log(`${label.padEnd(18)} valid ✓`);
     pass++;
   } catch (err) {
-    console.log(`${label.padEnd(13)} FAIL ${String(err.message).slice(0, 70)}`);
+    console.log(`${label.padEnd(18)} FAIL ${String(err.message).slice(0, 70)}`);
   }
 }
+
+// --- Phantom-EVM-first recovery scenario ---
+{
+  const [broken, good] = BROKEN_FIRST;
+  const cands = evmCandidates([], legacyProviders({ ethereum: [broken.provider, good.provider] }));
+  const ordered = demotePhantomEvm(cands);
+  if (ordered[0].name === broken.label || !/talisman/i.test(ordered[0].name)) {
+    console.log('phantom-first demotion FAIL — Phantom not moved to last');
+    process.exit(1);
+  }
+  const picked = await connectFirstWallet(ordered);
+  const address = getAddress(picked.address);
+  const { nonce } = await (await fetch(`${origin}/auth/siwe/nonce`, { method: 'POST' })).json();
+  const message = buildSiweMessage({ origin, address, nonce });
+  const msgHex = hexlify(toUtf8Bytes(message));
+  let signature;
+  try {
+    signature = await picked.provider.request({ method: 'personal_sign', params: [msgHex, address] });
+  } catch (err) {
+    // login.html's per-wallet loop: a failed candidate must not end the flow
+    signature = null;
+    console.log(`  (first pick ${picked.name} threw '${err.message}' — looping would continue)`);
+  }
+  total++;
+  const w = BROKEN_FIRST[1].w; // the wallet that should carry the login
+  const body = signature
+    ? await (await fetch(`${origin}/auth/siwe/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message, signature }),
+      })).json()
+    : { valid: false };
+  if (!(body.valid === true && body.address?.toLowerCase() === getAddress(w.address).toLowerCase())) {
+    console.log('phantom-first recovery FAIL');
+    process.exit(1);
+  }
+  console.log('phantom-evm-first   recovered via Talisman ✓');
+  pass++;
+}
 srv.close();
-console.log(`\n${pass}/${PROFILES.length} profiles passed`);
-process.exit(pass === PROFILES.length ? 0 : 1);
+console.log(`\n${pass}/${total} profiles passed`);
+process.exit(pass === total ? 0 : 1);

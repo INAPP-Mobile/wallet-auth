@@ -82,6 +82,19 @@ export function evmCandidates(announced, legacy) {
 }
 
 /**
+ * Phantom's EVM provider answers EIP-6963 discovery and often wins the
+ * candidate order, but its personal_sign rejects many valid message shapes
+ * with a bare "Unexpected error" — which then looks like our app failing.
+ * Real EVM-first wallets go first; Phantom-EVM only gets the last shot
+ * (it still works when it is the only wallet installed).
+ */
+export function demotePhantomEvm(candidates) {
+  const rest = candidates.filter((c) => !/phantom/i.test(c.name));
+  const phantom = candidates.filter((c) => /phantom/i.test(c.name));
+  return [...rest, ...phantom];
+}
+
+/**
  * Try eth_requestAccounts across candidates. Returns
  * { provider, name, address } or throws aggregated errors.
  * A user rejection (4001) aborts immediately — do not punish a deliberate
