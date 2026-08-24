@@ -65,7 +65,13 @@
     try {
       status('requesting accounts…');
       const provider = window.ethereum;
-      const [address] = await provider.request({ method: 'eth_requestAccounts' });
+      const [raw] = await provider.request({ method: 'eth_requestAccounts' });
+      // Some wallets (OKX, others) return all-lowercase accounts; SIWE line 2
+      // must be EIP-55 checksummed. Server checksums it before we sign —
+      // the signature covers exact message bytes.
+      const csRes = await fetch(`/auth/siwe/checksum?address=${encodeURIComponent(raw)}`);
+      if (!csRes.ok) return status('✗ invalid Ethereum address from wallet');
+      const { address } = await csRes.json();
       const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
 

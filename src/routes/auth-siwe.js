@@ -1,4 +1,5 @@
 import { Router, json } from 'express';
+import { getAddress } from 'ethers';
 import { mintToken } from '../token.js';
 import { verifySiwe } from '../verify/siwe.js';
 
@@ -44,6 +45,18 @@ export function buildSiweRouter({ nonceStore, secret, ttl = process.env.SESSION_
   }
 
   router.post('/nonce', async (_req, res) => res.json((await nonce()).body));
+
+  // EIP-55 checksum helper for the login UI. Some wallets (e.g. OKX) return
+  // all-lowercase accounts; SIWE line 2 must be checksummed or parsing fails.
+  // The signature covers exact message bytes, so this must happen pre-sign.
+  router.get('/checksum', (req, res) => {
+    try {
+      res.json({ address: getAddress(String(req.query.address || '')) });
+    } catch {
+      res.status(400).json({ valid: false, error: 'invalid Ethereum address' });
+    }
+  });
+
   router.post('/verify', async (req, res) => {
     const { message, signature } = req.body ?? {};
     if (!message || !signature) {

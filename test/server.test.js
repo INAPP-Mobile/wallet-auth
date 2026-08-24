@@ -40,6 +40,18 @@ test('unknown route -> express 404 html-free json', async () => {
   }
 });
 
+test('/auth/siwe/checksum EIP-55-encodes lowercase wallet accounts (OKX case)', async () => {
+  const s = await start({ paidVerify: false });
+  try {
+    const r = await (await fetch(`${s.url}/auth/siwe/checksum?address=0x917736ab1982df917d90d5abe325b9340959ca2d`)).json();
+    assert.equal(r.address, '0x917736aB1982df917d90d5Abe325B9340959ca2D');
+    const bad = await fetch(`${s.url}/auth/siwe/checksum?address=not-an-address`);
+    assert.equal(bad.status, 400);
+  } finally {
+    s.server.close();
+  }
+});
+
 test('PAID_VERIFY=off -> /v1/verify reachable without payment', async () => {
   const s = await start({ paidVerify: false });
   try {
