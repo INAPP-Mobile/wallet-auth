@@ -83,14 +83,21 @@
       const picked = await connectFirstWallet(cands);
       status(`${picked.name} connected — check your wallet…`);
 
-      const provider = new ethers.BrowserProvider(picked.provider);
-      const signer = await provider.getSigner();     // throws if user rejects
-      const address = await signer.getAddress();     // EIP-55 checksummed
+      // Checksum BEFORE building anything. Some wallets (Talisman) return
+      // lowercase accounts AND reject personal_sign whose `from` param is
+      // not EIP-55 — so both the message line-2 and the from param must be
+      // checksummed. We drive personal_sign directly rather than through
+      // ethers' signer, which would echo back its raw cached account.
+      const address = ethers.getAddress(picked.address);
       const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
 
       const message = buildSiweMessage({ origin, address, nonce });
-      const signature = await signer.signMessage(message);
+      const msgHex = ethers.hexlify(ethers.toUtf8Bytes(message));
+      const signature = await picked.provider.request({
+        method: 'personal_sign',
+        params: [msgHex, address],   // hex bytes + checksummed from: spec-exact
+      });
       const res = await fetch('/auth/siwe/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -131,8 +138,13 @@
       const errors = [];
       for (const p of candidates) {
         name = p.isPhantom ? 'Phantom' : 'Solana wallet';
-        try { await p.connect(); provider = p; break; }
-        catch (err) {
+        try {
+          // connect() is best-effort only — Phantom sometimes throws
+          // "Unexpected error" here while signMessage still works fine.
+          await p.connect().catch(() => {});
+          provider = p;
+          break;
+        } catch (err) {
           if (err?.code === 4001 || /reject/i.test(err?.message || '')) throw new Error(`${name}: connection rejected`);
           errors.push(`${name}: ${err.message || String(err)}`);
           provider = null;
@@ -143,14 +155,18 @@
       const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
       const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
-      const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
+      const signed = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
+      // Newer Phantom returns {signature, publicKey}; older just the bytes.
+      const rawSig = signed?.signature ?? signed;
+      const pubkeyStr = (signed?.publicKey ?? provider.publicKey)?.toString();
+      if (!pubkeyStr) throw new Error(`${name}: no public key returned`);
       const res = await fetch('/auth/solana/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          pubkey: provider.publicKey.toString(),
+          pubkey: pubkeyStr,
           message,
-          signature: toBase58(signature),
+          signature: toBase58(rawSig),
         }),
       });
       finish(await res.json());

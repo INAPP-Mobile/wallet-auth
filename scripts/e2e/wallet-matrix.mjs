@@ -3,21 +3,26 @@
 // behaviors without owning any extensions.
 //
 // Profiles encode each wallet family's known quirks at the JSON-RPC boundary:
-//   metamask    checksummed account, lenient personal_sign (accepts anything)
-//   talisman    checksummed account, REJECTS non-hex personal_sign messages
-//   phantom-evm checksummed account, hex-only, isPhantom flag
-//   okx         ALL-LOWERCASE account, hex-only
+//   metamask     checksummed account, lenient personal_sign (accepts anything)
+//   talisman     returns LOWERCASE account; REJECTS personal_sign whose
+//                message is not hex OR whose `from` is not EIP-55 checksummed
+//   phantom-evm  hex-only personal_sign, strict from-checksum
+//   okx          ALL-LOWERCASE account, hex-only
 //
-// The exact browser code path is exercised: wallet-core discovery/selection,
-// ethers BrowserProvider signing, then the live /auth/siwe/* endpoints.
-// Any EIP-6963-compliant wallet behaves like one of these profiles.
+// The exact browser code path from login.html is exercised: EIP-6963-style
+// discovery -> connectFirstWallet -> ethers.getAddress checksum ->
+// buildSiweMessage -> personal_sign [hex, checksummed-from] -> live endpoints.
 import { createApp } from '../../src/server.js';
-import { Wallet, getAddress, BrowserProvider } from 'ethers';
+import { Wallet, getAddress, toUtf8Bytes, hexlify } from 'ethers';
+import {
+  evmCandidates, legacyProviders, connectFirstWallet, buildSiweMessage,
+} from '../../src/public/wallet-core.js';
 
 const HEX_RE = /^0x[0-9a-fA-F]+$/;
 const hexToBytes = (hex) => Uint8Array.from(hex.slice(2).match(/.{2}/g).map((h) => parseInt(h, 16)));
+const BAD_FORMAT = "The app's signature request cannot be shown due to invalid formatting.";
 
-function makeWalletProfile({ label, accountCase, hexOnly }) {
+function makeWalletProfile({ label, accountCase }) {
   const w = Wallet.createRandom();
   const account = accountCase === 'lower' ? w.address.toLowerCase() : w.address;
   return {
@@ -32,12 +37,15 @@ function makeWalletProfile({ label, accountCase, hexOnly }) {
         if (method === 'eth_chainId') return '0x1';
         if (method === 'net_version') return '1';
         if (method === 'personal_sign') {
-          const [msg] = params ?? [];
-          if (!HEX_RE.test(msg || '')) {
-            // Talisman / Phantom-EVM behavior on malformed formatting.
-            throw new Error("The app's signature request cannot be shown due to invalid formatting.");
+          const [msg, from] = params ?? [];
+          // Strict wallets reject BOTH non-hex messages and non-EIP-55 from.
+          if (!HEX_RE.test(msg || '')) throw new Error(BAD_FORMAT);
+          try {
+            if (getAddress(from) !== from) throw new Error('not checksummed');
+          } catch {
+            throw new Error(BAD_FORMAT);
           }
-          return w.signMessage(hexToBytes(msg)); // decode bytes -> EIP-191
+          return w.signMessage(hexToBytes(msg));
         }
         throw new Error(`unsupported method ${method}`);
       },
@@ -46,10 +54,10 @@ function makeWalletProfile({ label, accountCase, hexOnly }) {
 }
 
 const PROFILES = [
-  makeWalletProfile({ label: 'metamask', accountCase: 'checksum', hexOnly: false }),
-  makeWalletProfile({ label: 'talisman', accountCase: 'checksum', hexOnly: true }),
-  makeWalletProfile({ label: 'phantom-evm', accountCase: 'checksum', hexOnly: true }),
-  makeWalletProfile({ label: 'okx', accountCase: 'lower', hexOnly: true }),
+  makeWalletProfile({ label: 'metamask', accountCase: 'checksum' }),
+  makeWalletProfile({ label: 'talisman', accountCase: 'lower' }),   // real-world Talisman
+  makeWalletProfile({ label: 'phantom-evm', accountCase: 'checksum' }),
+  makeWalletProfile({ label: 'okx', accountCase: 'lower' }),
 ];
 
 const { app } = await createApp({
@@ -59,24 +67,25 @@ const { app } = await createApp({
 });
 const srv = app.listen(0);
 await new Promise((r) => srv.on('listening', r));
-const base = `http://127.0.0.1:${srv.address().port}`;
-const origin = new URL(base).origin;
+const origin = `http://127.0.0.1:${srv.address().port}`;
 
-let pass = 0, failCount = 0;
-console.log('profile       account-case  result');
-for (const { label, provider, w } of PROFILES) {
+let pass = 0;
+console.log('profile       result');
+for (const profile of PROFILES) {
+  const { label, w } = profile;
   try {
     // --- exactly what login.html does ---
-    const bp = new BrowserProvider(provider);
-    const signer = await bp.getSigner();
-    const address = await signer.getAddress();          // EIP-55 normalized
-    const { nonce } = await (await fetch(`${base}/auth/siwe/nonce`, { method: 'POST' })).json();
-    const message =
-      `${origin} wants you to sign in with your Ethereum account:\n${address}\n\n` +
-      `Sign in to wallet-auth\n\nURI: ${origin}/\nVersion: 1\nChain ID: 1\nNonce: ${nonce}\n` +
-      `Issued At: ${new Date().toISOString()}`;
-    const signature = await signer.signMessage(message);
-    const body = await (await fetch(`${base}/auth/siwe/verify`, {
+    const cands = evmCandidates([], legacyProviders({ ethereum: [profile.provider] }));
+    const picked = await connectFirstWallet(cands);
+    const address = getAddress(picked.address);
+    const { nonce } = await (await fetch(`${origin}/auth/siwe/nonce`, { method: 'POST' })).json();
+    const message = buildSiweMessage({ origin, address, nonce });
+    const msgHex = hexlify(toUtf8Bytes(message));
+    const signature = await picked.provider.request({
+      method: 'personal_sign',
+      params: [msgHex, address],
+    });
+    const body = await (await fetch(`${origin}/auth/siwe/verify`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ message, signature }),
@@ -86,13 +95,12 @@ for (const { label, provider, w } of PROFILES) {
     if (body.address.toLowerCase() !== getAddress(w.address).toLowerCase()) {
       throw new Error(`address mismatch ${body.address}`);
     }
-    console.log(`${label.padEnd(13)} ${(label === 'okx' ? 'lower' : 'checksum').padEnd(13)} valid ✓`);
+    console.log(`${label.padEnd(13)} valid ✓`);
     pass++;
   } catch (err) {
-    console.log(`${label.padEnd(13)} -             FAIL ${String(err.message).slice(0, 60)}`);
-    failCount++;
+    console.log(`${label.padEnd(13)} FAIL ${String(err.message).slice(0, 70)}`);
   }
 }
 srv.close();
 console.log(`\n${pass}/${PROFILES.length} profiles passed`);
-process.exit(failCount ? 1 : 0);
+process.exit(pass === PROFILES.length ? 0 : 1);
