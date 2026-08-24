@@ -5,7 +5,7 @@
   "private": true,
   "description": "Wallet signature verification API: SIWE + Nostr NIP-98 + Solana, with x402 pay-per-verify and forward-auth gate mode",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test",
     "start": "node src/server.js"
   },
   "engines": {

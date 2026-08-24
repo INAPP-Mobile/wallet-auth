@@ -11,6 +11,7 @@ const sha256 = (s) => createHash('sha256').update(s).digest('hex');
  * the check-and-delete critical section is fully synchronous.
  */
 export async function createNonceStore(path, { ttlMs = 10 * 60 * 1000 } = {}) {
+  const ttl = ttlMs;
   await mkdir(dirname(path), { recursive: true }).catch(() => {});
   let map = {};
   try {
@@ -46,6 +47,19 @@ export async function createNonceStore(path, { ttlMs = 10 * 60 * 1000 } = {}) {
       const h = sha256(String(nonce));
       if (!map[h] || map[h] < Date.now()) return false;
       delete map[h];
+      await flush();
+      return true;
+    },
+
+    /**
+     * Atomically claim a client-supplied single-use id (e.g. NIP-98 event id).
+     * First claim wins; the id is then burned for ttl.
+     */
+    async claim(id) {
+      sweep();
+      const h = sha256(`claim:${String(id)}`);
+      if (map[h]) return false;
+      map[h] = Date.now() + ttl;
       await flush();
       return true;
     },

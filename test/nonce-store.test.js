@@ -47,3 +47,10 @@ test('consume is idempotent under concurrent double-call', async () => {
   const [r1, r2] = await Promise.all([store.consume(n), store.consume(n)]);
   assert.deepEqual([r1, r2].filter(Boolean).length, 1, 'exactly one consumer wins');
 });
+
+test('claim: client-supplied ids are first-claim-wins', async () => {
+  const store = await createNonceStore(tmpPath('claim.json'));
+  assert.equal(await store.claim('event-id-1'), true);
+  assert.equal(await store.claim('event-id-1'), false, 'second claim of same id rejected');
+  assert.equal(await store.claim('event-id-2'), true);
+});
