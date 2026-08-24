@@ -81,7 +81,7 @@ Set `PAID_VERIFY=off` to run pure gate-mode with no wallet configured.
 |---|---|---|---|
 | `SESSION_SECRET` | yes | — | HS256 signing secret (`openssl rand -hex 32`) |
 | `X402_PAY_TO` | if paid | — | Wallet address receiving x402 payments |
-| `PAID_VERIFY` | no | `on` | Set `off` to disable the paywall (gate-only mode) |
+| `PAID_VERIFY` | no | `on` | Paid oracle; missing wallet/CDP vars auto-fall back to gate-only |
 | `PUBLIC_URL` | recommended | — | Canonical origin, e.g. `${{RAILWAY_PUBLIC_DOMAIN}}`; binds NIP-98 URL tags |
 | `X402_PRICE_USD` | no | `$0.001` | Price per oracle verification |
 | `X402_CDP_KEY_ID` | if paid | — | Coinbase CDP API key ID (x402 facilitator auth) |

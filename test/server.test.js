@@ -54,6 +54,30 @@ test('PAID_VERIFY=off -> /v1/verify reachable without payment', async () => {
   }
 });
 
+test('PAID_VERIFY=on with missing wallet/CDP vars -> soft-fail to gate-only, app boots', async () => {
+  // server.js reads CDP creds from process.env — clear them for determinism.
+  const saved = [process.env.X402_CDP_KEY_ID, process.env.X402_CDP_KEY_SECRET];
+  delete process.env.X402_CDP_KEY_ID;
+  delete process.env.X402_CDP_KEY_SECRET;
+  const s = await start({ paidVerify: true, payTo: '' });
+  try {
+    // App is up and the oracle serves free (no paywall armed -> no 402).
+    const res = await fetch(`${s.url}/v1/verify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scheme: 'bitcoin' }),
+    });
+    assert.equal(res.status, 400); // reached handler, NOT 402, NOT crash
+    const cfg = await (await fetch(`${s.url}/config`)).json();
+    assert.equal(cfg.paidVerify, true); // requested on...
+    assert.equal(s.config.paidVerifyActive, false); // ...but paywall not armed
+  } finally {
+    s.server.close();
+    if (saved[0] !== undefined) process.env.X402_CDP_KEY_ID = saved[0];
+    if (saved[1] !== undefined) process.env.X402_CDP_KEY_SECRET = saved[1];
+  }
+});
+
 test('full SIWE roundtrip through mounted app mints working session for gate', async () => {
   const s = await start({ paidVerify: false });
   try {

@@ -23,9 +23,19 @@ const CDP_FACILITATOR_URL = "https://api.cdp.coinbase.com/platform/v2/x402";
  */
 export function applyPaywall(app, cfg) {
   if (!cfg.enabled) return false;
-  if (!cfg.payTo) throw new Error("X402_PAY_TO is required when PAID_VERIFY=on");
-  if (!cfg.cdpKeyId || !cfg.cdpKeySecret) {
-    throw new Error("X402_CDP_KEY_ID and X402_CDP_KEY_SECRET are required when PAID_VERIFY=on");
+  // Soft-fail: missing wallet/facilitator creds must never crash-loop the
+  // container — fall back to gate-only mode so first-deploy boots cleanly.
+  const missing = [
+    ...(cfg.payTo ? [] : ['X402_PAY_TO']),
+    ...(!cfg.cdpKeyId || !cfg.cdpKeySecret ? ['X402_CDP_KEY_ID/X402_CDP_KEY_SECRET'] : []),
+  ];
+  if (missing.length) {
+    console.warn(
+      `[wallet-auth] PAID_VERIFY=on but missing ${missing.join(', ')} — ` +
+      `running gate-only (paid oracle disabled, /v1/verify serves free). ` +
+      `Set these vars or PAID_VERIFY=off to silence this warning.`,
+    );
+    return false;
   }
 
   const publicUrl = String(cfg.publicUrl || "").replace(/\/+$/, "");
