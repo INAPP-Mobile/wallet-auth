@@ -1,6 +1,6 @@
 # Deploy and Host
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/gG0NEC)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.com/deploy/wallet-auth)
 
 ![Wallet Auth API](https://raw.githubusercontent.com/INAPP-Mobile/wallet-auth/main/template-icon.svg)
 
