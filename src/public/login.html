@@ -66,6 +66,9 @@
   }
 
   const fail = (label) => (e) => status(`✗ ${e?.message || label || 'unexpected error'}`);
+  const isRejected = (err) => err?.code === 4001
+    || /reject/i.test(err?.message || '')
+    || err?.code === 'ACTION_REJECTED';
 
   // ---------- Ethereum (SIWE / EIP-4361) ----------
   // Full attempt-loop: EACH wallet gets its own connect->sign->verify shot,
