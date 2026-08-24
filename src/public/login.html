@@ -60,18 +60,46 @@
     location.href = next.startsWith(origin) ? next : '/';
   }
 
+  // ---------- Multi-wallet discovery ----------
+  // With several extensions installed (Phantom + Talisman + MetaMask…) each
+  // tries to claim window.ethereum; the survivor may not be the connected
+  // one and throws generic "Unexpected error". Enumerate all candidates and
+  // try them until one approves.
+  function evmProviders() {
+    const list = [];
+    if (Array.isArray(window.ethereum)) list.push(...window.ethereum);
+    else if (window.ethereum?.providers?.length) list.push(...window.ethereum.providers);
+    else if (window.ethereum) list.push(window.ethereum);
+    if (window.talismanEth) list.push(window.talismanEth);
+    return [...new Set(list)];
+  }
+  const rejected = (e) => e?.code === 4001 || /reject/i.test(e?.message || '');
+
   // ---------- Ethereum (SIWE / EIP-4361) ----------
   document.getElementById('btn-siwe').onclick = async () => {
     try {
-      status('requesting accounts…');
-      const provider = window.ethereum;
-      const [raw] = await provider.request({ method: 'eth_requestAccounts' });
+      const cands = evmProviders();
+      if (!cands.length) return status('✗ No Ethereum extension found (MetaMask / OKX / Talisman…)');
+      status(`requesting accounts (${cands.length} wallet${cands.length > 1 ? 's' : ''} found)…`);
+      let address, provider;
+      const errors = [];
+      for (const p of cands) {
+        try {
+          const [a] = await p.request({ method: 'eth_requestAccounts' });
+          if (a) { provider = p; address = a; break; }
+        } catch (err) {
+          if (rejected(err)) throw new Error('connection rejected in wallet');
+          errors.push(err.message || String(err));
+        }
+      }
+      if (!address) throw new Error(errors.join(' | ') || 'no wallet approved the connection');
+
       // Some wallets (OKX, others) return all-lowercase accounts; SIWE line 2
       // must be EIP-55 checksummed. Server checksums it before we sign —
       // the signature covers exact message bytes.
-      const csRes = await fetch(`/auth/siwe/checksum?address=${encodeURIComponent(raw)}`);
+      const csRes = await fetch(`/auth/siwe/checksum?address=${encodeURIComponent(address)}`);
       if (!csRes.ok) return status('✗ invalid Ethereum address from wallet');
-      const { address } = await csRes.json();
+      address = (await csRes.json()).address;
       const nonceRes = await fetch('/auth/siwe/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
 
@@ -122,14 +150,25 @@
   // ---------- Solana ----------
   document.getElementById('btn-solana').onclick = async () => {
     try {
-      const provider = window.solana || window.phantom?.solana;
-      if (!provider) throw new Error('Phantom not detected');
+      // Prefer the real Phantom bridge; window.solana can be a stub when
+      // multiple extensions are installed (Talisman claims it on some setups).
+      const candidates = [window.phantom?.solana, window.solana].filter(Boolean);
+      if (!candidates.length) throw new Error('Phantom not detected');
       status('connecting…');
-      await provider.connect();
+      let provider;
+      const errors = [];
+      for (const p of candidates) {
+        try { await p.connect(); provider = p; break; }
+        catch (err) {
+          if (rejected(err)) throw new Error('connection rejected in wallet');
+          errors.push(err.message || String(err));
+        }
+      }
+      if (!provider) throw new Error(errors.join(' | ') || 'no Solana wallet connected');
       const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
       const { nonce } = await nonceRes.json();
       const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
-      status('check Phantom…');
+      status(provider === window.phantom?.solana ? 'check Phantom…' : 'check your wallet…');
       const { signature } = await provider.signMessage(new TextEncoder().encode(message), 'utf8');
       const res = await fetch('/auth/solana/verify', {
         method: 'POST',
