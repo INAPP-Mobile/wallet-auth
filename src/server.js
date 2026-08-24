@@ -18,7 +18,7 @@ const env = {
   sessionTtlHours: process.env.SESSION_TTL_HOURS || '24h',
   nonceTtlMinutes: Number(process.env.NONCE_TTL_MINUTES || 10),
   publicUrl: process.env.PUBLIC_URL || '',
-  paidVerify: String(process.env.PAID_VERIFY ?? 'on').toLowerCase() === 'on',
+  paidVerify: String(process.env.PAID_VERIFY ?? 'off').toLowerCase() === 'on',
   payTo: process.env.X402_PAY_TO || '',
   priceUsd: process.env.X402_PRICE_USD || '$0.001',
   network: process.env.X402_NETWORK || 'base',

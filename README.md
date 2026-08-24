@@ -38,7 +38,7 @@ Railway provides compute, TLS at the edge, the public URL, and the volume.
 
 None beyond Railway itself — no companion services, no external databases. The template creates its own persistent volume at `/data`. Optional variables enable paid mode:
 
-- `X402_PAY_TO` — your wallet address receiving x402 payments (omit, or set `PAID_VERIFY=off`, to run free gate-only mode)
+- `X402_PAY_TO` — your wallet address receiving x402 payments (needed only when `PAID_VERIFY=on`)
 - `X402_CDP_KEY_ID` / `X402_CDP_KEY_SECRET` — Coinbase CDP API keys used by the x402 facilitator in paid mode
 
 ## Features
@@ -73,7 +73,7 @@ No external databases or companion services required — just Railway:
 - A wallet address to receive x402 payments (EVM or Solana, depending on `X402_NETWORK`)
 - Optional: browser extensions (MetaMask, Alby/nos2x, Phantom) to use the login UI
 
-Set `PAID_VERIFY=off` to run pure gate-mode with no wallet configured.
+Gate mode is the default — no wallet needed. To sell verifications at $0.001 per call, set `PAID_VERIFY=on` and fill in your payment wallet and CDP keys below.
 
 ## Environment Variables
 
@@ -81,7 +81,7 @@ Set `PAID_VERIFY=off` to run pure gate-mode with no wallet configured.
 |---|---|---|---|
 | `SESSION_SECRET` | yes | — | HS256 signing secret (`openssl rand -hex 32`) |
 | `X402_PAY_TO` | if paid | — | Wallet address receiving x402 payments |
-| `PAID_VERIFY` | no | `on` | Paid oracle; missing wallet/CDP vars auto-fall back to gate-only |
+| `PAID_VERIFY` | no | `off` | Set `on` (+ wallet & CDP keys) to enable the paid x402 oracle |
 | `PUBLIC_URL` | recommended | — | Canonical origin, e.g. `${{RAILWAY_PUBLIC_DOMAIN}}`; binds NIP-98 URL tags |
 | `X402_PRICE_USD` | no | `$0.001` | Price per oracle verification |
 | `X402_CDP_KEY_ID` | if paid | — | Coinbase CDP API key ID (x402 facilitator auth) |

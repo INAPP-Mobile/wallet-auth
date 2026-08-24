@@ -10,8 +10,8 @@
     "isOptional": false
   },
   "PAID_VERIFY": {
-    "defaultValue": "on",
-    "description": "Set to 'off' to disable the x402 paywall and run pure gate-mode.",
+    "defaultValue": "off",
+    "description": "Set to 'on' (plus your wallet + CDP keys below) to enable the $0.001-per-verify x402 oracle. Off = free gate mode.",
     "isOptional": true
   },
   "X402_PAY_TO": {
@@ -26,13 +26,13 @@
   },
   "X402_CDP_KEY_ID": {
     "defaultValue": "",
-    "description": "Coinbase CDP API key ID — enables x402 verification/settlement via the CDP facilitator on Base mainnet.",
-    "isOptional": false
+    "description": "Coinbase CDP API key ID — required only when PAID_VERIFY=on. Leave empty for gate-only mode. Never use placeholder values.",
+    "isOptional": true
   },
   "X402_CDP_KEY_SECRET": {
     "defaultValue": "",
-    "description": "Coinbase CDP API key secret (PEM EC or base64 Ed25519).",
-    "isOptional": false
+    "description": "Coinbase CDP API key secret (PEM EC or base64 Ed25519) — required only when PAID_VERIFY=on. Leave empty for gate-only mode.",
+    "isOptional": true
   },
   "SESSION_TTL_HOURS": {
     "defaultValue": "24",
