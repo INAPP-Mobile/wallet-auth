@@ -84,7 +84,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
   const { app, config } = await createApp();
   app.listen(config.port, () => {
     console.log(`[wallet-auth] listening on :${config.port}`);
-    console.log(`[wallet-auth] paid verify: ${config.paidVerifyActive ? `ON ($${config.priceUsd} -> ${config.payTo})` : 'off'}`);
+    console.log(`[wallet-auth] paid verify: ${config.paidVerifyActive ? `ON (${config.priceUsd} -> ${config.payTo})` : 'off'}`);
     console.log(`[wallet-auth] data dir: ${config.dataDir}`);
   });
 }
