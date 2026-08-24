@@ -150,59 +150,68 @@
   };
 
   // ---------- Solana ----------
-  // Phantom's Solana provider can throw bare "Unexpected error" from both
-  // connect() and signMessage(); every wallet-specific call below is wrapped
-  // so no raw extension error ever reaches the UI unprefixed. A rejected
-  // connect (4001) stops the flow; other connect failures fall through —
-  // signing may still work. Each candidate gets a full attempt.
+  // Wallet-Standard first (wallets register themselves via
+  // 'register:wallet' — no window-property squatting possible), then the
+  // classic injection points. Every wallet-specific call is wrapped so raw
+  // extension errors never reach the UI unprefixed; each candidate gets a
+  // full connect->nonce->sign->verify attempt.
   document.getElementById('btn-solana').onclick = async () => {
     const debug = new URLSearchParams(location.search).has('debug');
     const dbg = [];
+    const log = (m) => { dbg.push(m); if (debug) status(`[debug] ${dbg.join(' → ')}`); };
     try {
-      const candidates = solanaCandidates(window);
+      let registered = [];
+      try {
+        if (Array.isArray(window.phantom?.solana?._wallets)) registered = [...window.phantom.solana._wallets];
+      } catch { /* non-standard layout */ }
+      const candidates = [
+        ...registered.map((w, i) => ({ p: w, name: w.name || `registered-wallet-${i}`, tag: 'standard' })),
+        ...solanaCandidates(window).map((p) => ({ p, name: p.isPhantom ? 'Phantom' : 'Solana wallet', tag: 'injected' })),
+      ];
       if (!candidates.length) throw new Error('No Solana wallet found (install Phantom or Solflare)');
-      status('connecting…');
+      status(`connecting… (${candidates.length} found)`);
       const errors = [];
       let done = false;
-      for (const p of candidates) {
-        const name = p.isPhantom ? 'Phantom' : 'Solana wallet';
+      for (const c of candidates) {
+        const name = c.name;
+        const label = `${name}[${c.tag}${c.p.isConnected === false ? ',unconnected' : ''}]`;
         try {
+          log(label);
+          status(`check ${name}…`);
+          // connect(): best-effort — a user rejection stops the flow; other
+          // failures are logged and signing is still attempted.
           try {
-            await p.connect();
+            await c.p.connect();
           } catch (err) {
             if (isRejected(err)) throw new Error(`${name}: connection rejected`);
-            if (debug) { dbg.push(`${name}.connect:${err.message || err}`); status(`[debug] ${dbg.join(' → ')}`); }
+            log(`${name}.connect:${String(err?.message || err).slice(0, 60)}`);
           }
-          const srcTag = p === window.phantom?.solana ? 'phantom.solana' : 'window.solana';
-          dbg.push(`${name}[${srcTag}${p.isConnected === false ? ',unconnected' : ''}]`);
-          if (debug) status(`[debug] ${dbg.join(' → ')}`);
-          status(`check ${name}…`);
           const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
           if (!nonceRes.ok) throw new Error(`${name}: nonce endpoint HTTP ${nonceRes.status}`);
           const { nonce } = await nonceRes.json();
           const message = `Sign in to wallet-auth\nNonce: ${nonce}`;
           let signed;
           try {
-            signed = await p.signMessage(new TextEncoder().encode(message), 'utf8');
+            signed = await c.p.signMessage(new TextEncoder().encode(message), 'utf8');
           } catch (err1) {
-            // One recovery shot: re-establish the session explicitly, then
-            // sign again. Covers the dead-session case where an earlier
-            // connect hiccup leaves signMessage throwing -32603.
+            // One recovery shot: reconnect then sign again — covers a dead
+            // session left by an earlier connect hiccup (-32603 case).
+            log(`${name}.sign:${String(err1?.message || err1).slice(0, 40)}→retry`);
             try {
-              await p.connect();
-              signed = await p.signMessage(new TextEncoder().encode(message), 'utf8');
-              if (debug) { dbg.push(`${name}.recovered`); status(`[debug] ${dbg.join(' → ')}`); }
+              await c.p.connect();
+              signed = await c.p.signMessage(new TextEncoder().encode(message), 'utf8');
+              log(`${name}.recovered`);
             } catch (err2) {
               const msg = String(err2?.message || err2);
               const hint = /unexpected error/i.test(msg)
-                ? ' — try updating or reinstalling the Phantom extension, and check for a blocked popup'
+                ? ' — update or reinstall this wallet extension and retry'
                 : '';
               throw new Error(`${name}: sign failed — ${msg}${hint}`);
             }
           }
-          // Newer Phantom returns {signature, publicKey}; older just the bytes.
+          // Newer wallets return {signature, publicKey}; older just the bytes.
           const rawSig = signed?.signature ?? signed;
-          const pubkeyStr = (signed?.publicKey ?? p.publicKey)?.toString?.();
+          const pubkeyStr = (signed?.publicKey ?? c.p.publicKey)?.toString?.();
           if (!pubkeyStr) throw new Error(`${name}: no public key returned`);
           const res = await fetch('/auth/solana/verify', {
             method: 'POST',
@@ -221,7 +230,8 @@
         } catch (err) {
           if (/rejected/i.test(err?.message || '')) return status(`✗ ${err.message}`);
           errors.push(err.message);
-          if (debug) { dbg.push(`ERR:${err.message}`); status(`[debug] ${dbg.join(' → ')}`); console.error('[wallet-auth solana]', p, err); }
+          log(`ERR:${err.message}`);
+          console.error('[wallet-auth solana]', c.p, err);
         }
       }
       if (!done) throw new Error(errors.join(' | ') || 'no Solana wallet completed signing');
