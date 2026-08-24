@@ -19,13 +19,13 @@
     "value": "$0.001",
     "description": "Price per oracle verification."
   },
-  "X402_NETWORK": {
-    "value": "base",
-    "description": "x402 settlement network."
+  "X402_CDP_KEY_ID": {
+    "value": "",
+    "description": "Coinbase CDP API key ID for the x402 facilitator."
   },
-  "X402_FACILITATOR_URL": {
-    "value": "https://www.x402.org/facilitator",
-    "description": "x402 facilitator endpoint."
+  "X402_CDP_KEY_SECRET": {
+    "value": "",
+    "description": "Coinbase CDP API key secret (PEM EC or base64 Ed25519)."
   },
   "SESSION_TTL_HOURS": {
     "value": "24",

@@ -37,6 +37,7 @@ export async function createApp(overrides = {}) {
 
   const app = express();
   app.disable('x-powered-by');
+  app.use(express.json({ limit: '64kb' }));
 
   // RAILWAY_PUBLIC_DOMAIN is a bare hostname — normalize to a full origin
   // so NIP-98 u-tag binding and the UI sign against identical URLs.
@@ -69,13 +70,14 @@ export async function createApp(overrides = {}) {
   app.use('/auth/nostr', buildNostrRouter({ nonceStore, secret: cfg.secret, publicUrl: cfg.publicUrl, ttl: cfg.sessionTtlHours }));
   app.use('/auth/solana', buildSolanaRouter({ nonceStore, secret: cfg.secret, ttl: cfg.sessionTtlHours }));
 
-  // Paid verification oracle (x402 $0.001 when PAID_VERIFY=on).
+  // Paid verification oracle (x402 v2 via Coinbase CDP facilitator).
   const paid = applyPaywall(app, {
     enabled: cfg.paidVerify,
     payTo: cfg.payTo,
     price: cfg.priceUsd,
-    network: cfg.network,
-    facilitatorUrl: cfg.facilitatorUrl,
+    publicUrl: cfg.publicUrl,
+    cdpKeyId: process.env.X402_CDP_KEY_ID,
+    cdpKeySecret: process.env.X402_CDP_KEY_SECRET,
   });
   app.use('/v1/verify', buildVerifyRouter());
 

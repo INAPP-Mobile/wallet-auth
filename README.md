@@ -47,8 +47,8 @@ Set `PAID_VERIFY=off` to run pure gate-mode with no wallet configured.
 | `PAID_VERIFY` | no | `on` | Set `off` to disable the paywall (gate-only mode) |
 | `PUBLIC_URL` | recommended | — | Canonical origin, e.g. `${{RAILWAY_PUBLIC_DOMAIN}}`; binds NIP-98 URL tags |
 | `X402_PRICE_USD` | no | `$0.001` | Price per oracle verification |
-| `X402_NETWORK` | no | `base` | x402 network |
-| `X402_FACILITATOR_URL` | no | x402.org | Custom facilitator endpoint |
+| `X402_CDP_KEY_ID` | if paid | — | Coinbase CDP API key ID (x402 facilitator auth) |
+| `X402_CDP_KEY_SECRET` | if paid | — | Coinbase CDP API key secret |
 | `SESSION_TTL_HOURS` | no | `24` | Session token lifetime |
 | `NONCE_TTL_MINUTES` | no | `10` | Challenge lifetime |
 | `GATE_COOKIE_NAME` | no | `wa_session` | Session cookie checked by `/gate` |
@@ -98,4 +98,4 @@ location / {
 2. Set `PUBLIC_URL=${{RAILWAY_PUBLIC_DOMAIN}}` and redeploy once.
 3. Confirm `GET /health` returns `{"ok":true}`.
 4. Test each flow from the bundled `/login.html`.
-5. For production-grade x402 settlement on Base mainnet, point `X402_FACILITATOR_URL` at your facilitator of choice.
+5. For x402 settlement, create a Coinbase CDP API key and set `X402_CDP_KEY_ID` / `X402_CDP_KEY_SECRET`.

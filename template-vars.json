@@ -24,15 +24,15 @@
     "description": "Price per signature verification through POST /v1/verify.",
     "isOptional": true
   },
-  "X402_NETWORK": {
-    "defaultValue": "base",
-    "description": "x402 settlement network.",
-    "isOptional": true
+  "X402_CDP_KEY_ID": {
+    "defaultValue": "",
+    "description": "Coinbase CDP API key ID — enables x402 verification/settlement via the CDP facilitator on Base mainnet.",
+    "isOptional": false
   },
-  "X402_FACILITATOR_URL": {
-    "defaultValue": "https://www.x402.org/facilitator",
-    "description": "x402 facilitator endpoint used to verify and settle payments.",
-    "isOptional": true
+  "X402_CDP_KEY_SECRET": {
+    "defaultValue": "",
+    "description": "Coinbase CDP API key secret (PEM EC or base64 Ed25519).",
+    "isOptional": false
   },
   "SESSION_TTL_HOURS": {
     "defaultValue": "24",
