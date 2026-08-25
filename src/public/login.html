@@ -175,7 +175,21 @@
           tag: 'injected',
         })),
       ];
-      if (!candidates.length) throw new Error('No Solana wallet found (install Solflare or Backpack)');
+      if (!candidates.length) {
+        const probe = {
+          'phantom.solana': Boolean(window.phantom?.solana),
+          backpack: Boolean(window.backpack?.solana ?? window.backpack),
+          solflare: Boolean(window.solflare),
+          'window.solana': Boolean(window.solana),
+          standard: registered.length,
+        };
+        const seen = Object.entries(probe).map(([k, v]) => `${k}=${v}`).join(' ');
+        throw new Error(
+          'No usable Solana wallet found (scanned: ' + seen + ')'
+          + ' — if backpack=0 here but the extension is installed, open its toolbar icon '
+          + 'while on this page and approve/enable this site',
+        );
+      }
       status(`connecting… (${candidates.length} found)`);
       const errors = [];
       let done = false;
