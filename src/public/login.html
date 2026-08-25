@@ -23,7 +23,7 @@
   <div id="status"></div>
   <button id="btn-siwe">🦊 Ethereum (SIWE)</button>
   <button id="btn-nostr">⚡ Nostr (NIP-98)</button>
-  <button id="btn-solana">☀️ Solana (Phantom)</button>
+  <button id="btn-solana">☀️ Solana</button>
   <p><a href="/">← back</a></p>
 </main>
 <script src="/vendor/ethers.umd.min.js"></script>
@@ -172,7 +172,7 @@
           tag: 'injected',
         })),
       ];
-      if (!candidates.length) throw new Error('No Solana wallet found (install Phantom or Solflare)');
+      if (!candidates.length) throw new Error('No Solana wallet found (install Solflare or Backpack)');
       status(`connecting… (${candidates.length} found)`);
       const errors = [];
       let done = false;
@@ -208,7 +208,7 @@
             } catch (err2) {
               const msg = String(err2?.message || err2);
               const hint = /unexpected error/i.test(msg)
-                ? ' — update or reinstall this wallet extension and retry'
+                ? ` — known ${name} bug (fails before its approval UI opens); use Solflare or Backpack instead`
                 : '';
               throw new Error(`${name}: sign failed — ${msg}${hint}`);
             }

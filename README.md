@@ -23,7 +23,7 @@ Railway provides compute, TLS at the edge, the public URL, and the volume.
 - **Replay protection built in** — single-use server challenges persisted on a volume; bad signatures never burn nonces
 - **Free sign-in flows** — `/auth/siwe`, `/auth/nostr`, `/auth/solana` issue HS256 session tokens with no payment required
 - **Gate mode** — drop-in `forward_auth` for Caddy and `auth_request` for nginx; any upstream becomes wallet-gated with three lines of config
-- **Bundled login UI** — working MetaMask, Alby/nos2x, and Phantom sign-in pages out of the box
+- **Bundled login UI** — working MetaMask, Alby/nos2x, and Solana-wallet (Solflare / Backpack / Phantom*) sign-in pages out of the box
 
 ## Common Use Cases
 
@@ -55,9 +55,12 @@ None beyond Railway itself — no companion services, no external databases. The
 The login page is built on standards rather than per-wallet patches, so any conformant wallet works by construction:
 
 - **EIP-6963** multi-wallet discovery — every installed extension announces itself; no more "last extension wins" conflicts
+- **Solana wallet-standard** discovery — registered wallets (Solflare, Backpack, …) are tried before legacy `window.solana` injection
 - **ethers `BrowserProvider`** signing — normalizes `personal_sign` formatting across wallet families (hex-only wallets like Talisman/Phantom-EVM and lenient ones like MetaMask all work)
 - **EIP-55 normalization server-side** — wallets that return lowercase accounts (OKX) are checksummed before signing
 - Regression-tested against a simulated wallet matrix (MetaMask / Talisman / Phantom-EVM / OKX profiles): `node scripts/e2e/wallet-matrix.mjs`
+
+> **Known issue:** some Phantom extension builds throw a generic `"Unexpected error"` from `signMessage` *before the approval popup opens* (upstream `-32603`; message shape verified against Phantom's own docs). The Solana login path itself is healthy — use **Solflare** or **Backpack**, or call `/auth/solana` directly from CLI/mobile clients. The server-side ed25519 verification is unaffected and fully regression-tested.
 
 ## Quick Start
 
@@ -80,7 +83,7 @@ No external databases or companion services required — just Railway:
 
 - One persistent **volume** mounted at `/data` (created automatically by this template)
 - A wallet address to receive x402 payments (EVM or Solana, depending on `X402_NETWORK`)
-- Optional: browser extensions (MetaMask, Alby/nos2x, Phantom) to use the login UI
+- Optional: browser extensions (MetaMask, Alby/nos2x, Solflare) to use the login UI
 
 Gate mode is the default — no wallet needed. To sell verifications at $0.001 per call, set `PAID_VERIFY=on` and fill in your payment wallet and CDP keys below.
 
