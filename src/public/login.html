@@ -200,12 +200,22 @@
           log(label);
           status(`check ${name}…`);
           // connect(): best-effort — a user rejection stops the flow; other
-          // failures are logged and signing is still attempted.
+          // failures are logged and signing is still attempted. Capture the
+          // resolved publicKey: some wallets return it here instead of
+          // setting .publicKey synchronously.
+          let connPk = null;
           try {
-            await c.p.connect();
+            const conn = await c.p.connect();
+            connPk = conn?.publicKey ?? null;
           } catch (err) {
             if (isRejected(err)) throw new Error(`${name}: connection rejected`);
             log(`${name}.connect:${String(err?.message || err).slice(0, 60)}`);
+          }
+          if (!connPk && !c.p.publicKey) {
+            throw new Error(
+              `${name}: connected, but no Solana account is active in the wallet`
+              + ' — open the wallet, add/select a Solana account, then retry',
+            );
           }
           const nonceRes = await fetch('/auth/solana/nonce', { method: 'POST' });
           if (!nonceRes.ok) throw new Error(`${name}: nonce endpoint HTTP ${nonceRes.status}`);
