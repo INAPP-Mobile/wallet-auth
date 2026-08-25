@@ -127,11 +127,12 @@ export function buildSiweMessage({ origin, address, nonce, statement = 'Sign in 
 
 /**
  * Deduped, connectable Solana candidate list: the real Phantom bridge,
- * Solflare, then window.solana (which may be a stub claimed elsewhere).
+ * Backpack (window.backpack), Solflare, then window.solana (which may be
+ * a stub claimed elsewhere).
  */
 export function solanaCandidates(win) {
   const seen = new Set();
-  return [win.phantom?.solana, win.solflare, win.solana].filter((p) => {
+  return [win.phantom?.solana, win.backpack?.solana ?? win.backpack, win.solflare, win.solana].filter((p) => {
     if (!p || seen.has(p) || typeof p.connect !== 'function') return false;
     seen.add(p);
     return true;
