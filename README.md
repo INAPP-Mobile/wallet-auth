@@ -74,7 +74,7 @@ Verify a signature through the paid oracle:
 ```bash
 curl -X POST https://your-app.up.railway.app/v1/verify \
   -H "Content-Type: application/json" \
-  -d '{"scheme":"solana","pubkey":"<base58>","message":"hello","signature":"<base58>"}'
+  -d '{"scheme":"solana","pubkey":"{base58}","message":"hello","signature":"{base58}"}'
 ```
 
 ## Prerequisites
